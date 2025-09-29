@@ -5,13 +5,14 @@ import dayjs from "dayjs";
 import { createReport, findReportById, listReportsByUser } from "../models/report.model.js";
 import { getReportsByUser } from "../models/report.model.js";
 
+
 export async function postCreateReport(req, res) {
   const userId = req.user.id;
   const { title, description, equipmentId, dims, indicators, results, sag } = req.body;
 
   // Validación mínima
-  if (!dims?.H || !dims?.D || !dims?.E) return res.status(400).json({ ok:false, error:"Faltan H,D,E" });
-  if (!indicators || !results) return res.status(400).json({ ok:false, error:"Faltan indicadores/resultados" });
+  if (!dims?.H || !dims?.D || !dims?.E) return res.status(400).json({ ok: false, error: "Faltan H,D,E" });
+  if (!indicators || !results) return res.status(400).json({ ok: false, error: "Faltan indicadores/resultados" });
 
   // Guardar en BD
   const id = await createReport({
@@ -23,66 +24,8 @@ export async function postCreateReport(req, res) {
     dims, indicators, results, sag: Number(sag || 0)
   });
 
-  // Generar PDF
-  const baseDir = path.resolve("files/reports");
-  await fs.promises.mkdir(baseDir, { recursive: true });
-  const pdfPath = path.join(baseDir, `${id}.pdf`);
-
-  const doc = new PDFDocument({ size: "A4", margin: 40 });
-  doc.pipe(fs.createWriteStream(pdfPath));
-
-  // Header
-  doc.fontSize(18).text("Alignment Procedure Report", { align: "center" });
-  doc.moveDown(0.2);
-  doc.fontSize(12).text(`Report Date: ${dayjs().format("YYYY-MM-DD HH:mm")}`, { align: "center" });
-  doc.fontSize(12).text("Rim and Face Method", { align: "center" });
-  doc.moveDown();
-
-  // Account / Meta
-  doc.fontSize(11).text(`User: ${req.user.name || req.user.email}`);
-  if (equipmentId) doc.text(`Equipment ID: ${equipmentId}`);
-  if (title) doc.text(`Title: ${title}`);
-  doc.moveDown();
-
-  // Dimensions
-  doc.fontSize(12).text("Equipment Measurements (inches)", { underline: true });
-  doc.fontSize(10)
-    .text(`H (Swing diameter): ${dims.H}`)
-    .text(`D (Near feet → face): ${dims.D}`)
-    .text(`E (Feet spacing): ${dims.E}`);
-  if (dims.F || dims.G) {
-    doc.text(`F (Left front): ${dims.F ?? "N/A"}`);
-    doc.text(`G (Left back): ${dims.G ?? "N/A"}`);
-  }
-  doc.moveDown();
-
-  // Indicators
-  doc.fontSize(12).text("Dial Indicator Readings", { underline: true });
-  doc.fontSize(10)
-    .text(`Rim — 90°: ${indicators.R90}, 180°: ${indicators.R180}, 270°: ${indicators.R270}`)
-    .text(`Face — 90°: ${indicators.F90}, 180°: ${indicators.F180}, 270°: ${indicators.F270}`)
-    .text(`Adjusted for SAG @90°: ${sag || 0}`);
-  doc.moveDown();
-
-  // Results
-  doc.fontSize(12).text("Calculated Results", { underline: true });
-  doc.fontSize(10)
-    .text(`Vertical — Near (VN): ${Number(results.VN).toFixed(2)}`)
-    .text(`Vertical — Far  (VF): ${Number(results.VF).toFixed(2)}`)
-    .text(`Horizontal — Near (HN): ${Number(results.HN).toFixed(2)}`)
-    .text(`Horizontal — Far  (HF): ${Number(results.HF).toFixed(2)}`);
-  doc.moveDown();
-
-  // Notes
-  if (description) {
-    doc.fontSize(12).text("Notes", { underline: true });
-    doc.fontSize(10).text(description);
-  }
-
-  doc.end();
-
-  const pdfUrl = `/files/reports/${id}.pdf`;
-  return res.json({ ok: true, id, pdfUrl });
+  // Solo enviar los datos del reporte, no el archivo PDF
+  res.json({ ok: true, id });
 }
 
 export async function getMyReports(req, res) {
@@ -90,12 +33,26 @@ export async function getMyReports(req, res) {
     const userId = req.user.id;
     const rows = await getReportsByUser(userId);
 
-    // Adjunta URL absoluta del archivo si existe file_path
     const base = `${req.protocol}://${req.get("host")}`;
     const items = rows.map((r) => ({
-      ...r,
+      id: r.id,
+      user_id: r.user_id,
+      method: r.method,
+      title: r.title,
+      equipment_id: r.equipment_id,
+      description: r.description,
+      dims: r.dims,  // No deserializamos, usamos el dato tal como está en la BD
+      indicators: r.indicators,  // No deserializamos
+      results: r.results,  // No deserializamos
+      sag: r.sag,
+      created_at: r.created_at,
       file_url: r.file_path ? `${base}${r.file_path.startsWith("/") ? "" : "/"}${r.file_path}` : null,
+      user_name: r.user_name || null,
+      user_email: r.user_email || null
     }));
+
+    // Log para verificar la respuesta
+    console.log("[BACKEND] Report Data Sent:", items);
 
     return res.json({ ok: true, items });
   } catch (err) {
@@ -104,9 +61,45 @@ export async function getMyReports(req, res) {
   }
 }
 
+
+// report.controller.js (Backend)
 export async function getReport(req, res) {
   const id = Number(req.params.id);
-  const rep = await findReportById(id, req.user.id);
-  if (!rep) return res.status(404).json({ ok: false, error: "Not found" });
-  res.json({ ok: true, report: rep });
+
+  // Obtener el reporte desde la base de datos
+  const report = await findReportById(id, req.user.id);
+
+  if (!report) {
+    console.log("[REPORT] Report not found for ID:", id);
+    return res.status(404).json({ ok: false, error: "Report not found" });
+  }
+
+  // Obtener el nombre del usuario (si existe)
+  const user = await getUserById(report.user_id); // Asumimos que hay una función para obtener el usuario por ID
+  const userName = user ? user.name : "Unknown User";
+  const userEmail = user ? user.email : "Unknown Email";
+
+  // Registro de los datos que se están enviando al frontend
+  console.log("[REPORT] Report data:", report);
+  console.log("[REPORT] User data:", user);
+
+  // Devolver los datos del reporte, asegurando que todos los campos estén presentes
+  res.json({
+    ok: true,
+    report: {
+      id: report.id,
+      user_id: report.user_id,
+      method: report.method,
+      title: report.title,
+      equipment_id: report.equipment_id,
+      description: report.description,
+      dims: report.dims, // No deserializamos, se envía tal cual como está
+      indicators: report.indicators, // No deserializamos
+      results: report.results, // No deserializamos
+      sag: report.sag,
+      created_at: report.created_at,
+      user_name: userName,
+      user_email: userEmail,
+    },
+  });
 }

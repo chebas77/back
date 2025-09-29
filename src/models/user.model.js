@@ -15,7 +15,7 @@ export async function findUserByEmail(email) {
     `SELECT id, name, email, password_hash, created_at FROM ${TABLE} WHERE email = ? LIMIT 1`,
     [email]
   );
-  return rows[0] || null;
+  return rows[0] || null; 
 }
 
 export async function findUserById(id) {

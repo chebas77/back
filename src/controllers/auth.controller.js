@@ -19,7 +19,7 @@ export function handleAuthSuccess(req, res) {
   });
 
   // Redirigir al front (ej: dashboard)
-  const redirectTo = `${config.frontendUrl}/dashboard`;
+  const redirectTo = `${config.frontendUrl}/app`;
   return res.redirect(302, redirectTo);
 }
 
