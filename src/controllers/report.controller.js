@@ -63,43 +63,42 @@ export async function getMyReports(req, res) {
 
 
 // report.controller.js (Backend)
+// controllers/report.controller.js
 export async function getReport(req, res) {
-  const id = Number(req.params.id);
+  try {
+    const id = Number(req.params.id);
+    const report = await findReportById(id, req.user.id);
+    if (!report) return res.status(404).json({ ok: false, error: "Report not found" });
 
-  // Obtener el reporte desde la base de datos
-  const report = await findReportById(id, req.user.id);
+    // Si usas getUserById, no olvides importarlo y protegerlo
+    let userName = null, userEmail = null;
+    try {
+      const user = await getUserById(report.user_id); // importa desde tu modelo de usuarios
+      userName = user?.name ?? null;
+      userEmail = user?.email ?? null;
+    } catch { /* ignora si falla */ }
 
-  if (!report) {
-    console.log("[REPORT] Report not found for ID:", id);
-    return res.status(404).json({ ok: false, error: "Report not found" });
+    return res.json({
+      ok: true,
+      report: {
+        id: report.id,
+        user_id: report.user_id,
+        method: report.method,
+        title: report.title,
+        equipment_id: report.equipment_id,
+        description: report.description,
+        dims: report.dims,
+        indicators: report.indicators,
+        results: report.results,
+        sag: report.sag,
+        created_at: report.created_at,
+        user_name: userName,
+        user_email: userEmail,
+      },
+    });
+  } catch (e) {
+    console.error("[REPORT getReport] error:", e);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
-
-  // Obtener el nombre del usuario (si existe)
-  const user = await getUserById(report.user_id); // Asumimos que hay una función para obtener el usuario por ID
-  const userName = user ? user.name : "Unknown User";
-  const userEmail = user ? user.email : "Unknown Email";
-
-  // Registro de los datos que se están enviando al frontend
-  console.log("[REPORT] Report data:", report);
-  console.log("[REPORT] User data:", user);
-
-  // Devolver los datos del reporte, asegurando que todos los campos estén presentes
-  res.json({
-    ok: true,
-    report: {
-      id: report.id,
-      user_id: report.user_id,
-      method: report.method,
-      title: report.title,
-      equipment_id: report.equipment_id,
-      description: report.description,
-      dims: report.dims, // No deserializamos, se envía tal cual como está
-      indicators: report.indicators, // No deserializamos
-      results: report.results, // No deserializamos
-      sag: report.sag,
-      created_at: report.created_at,
-      user_name: userName,
-      user_email: userEmail,
-    },
-  });
 }
+
