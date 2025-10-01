@@ -8,20 +8,32 @@ import { getReportsByUser } from "../models/report.model.js";
 
 export async function postCreateReport(req, res) {
   const userId = req.user.id;
-  const { title, description, equipmentId, dims, indicators, results, sag } = req.body;
+  const { title, description, equipmentId, dims, indicators, results, sag, projectId } = req.body;
 
   // Validación mínima
   if (!dims?.H || !dims?.D || !dims?.E) return res.status(400).json({ ok: false, error: "Faltan H,D,E" });
   if (!indicators || !results) return res.status(400).json({ ok: false, error: "Faltan indicadores/resultados" });
 
   // Guardar en BD
+  let normalizedProjectId = null;
+  if (projectId !== undefined && projectId !== null && projectId !== '') {
+    const parsed = Number.parseInt(projectId, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      normalizedProjectId = parsed;
+    }
+  }
+
   const id = await createReport({
     userId,
     method: "RIM_FACE",
     title: title?.trim() || null,
     description: description?.trim() || null,
     equipmentId: equipmentId?.trim() || null,
-    dims, indicators, results, sag: Number(sag || 0)
+    dims,
+    indicators,
+    results,
+    sag: Number(sag || 0),
+    projectId: normalizedProjectId,
   });
 
   // Solo enviar los datos del reporte, no el archivo PDF
@@ -37,6 +49,8 @@ export async function getMyReports(req, res) {
     const items = rows.map((r) => ({
       id: r.id,
       user_id: r.user_id,
+      project_id: r.project_id,
+      projectId: r.project_id,
       method: r.method,
       title: r.title,
       equipment_id: r.equipment_id,
