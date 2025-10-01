@@ -22,7 +22,7 @@ router.get('/search', async (req, res) => {
   try {
     const params = [like, like, like, like, limit];
     let sql = `
-      SELECT id, title, method, type, description, equipment_id, created_at
+      SELECT id, title, method, method AS type, description, equipment_id, created_at
       FROM alignment_reports
       WHERE title LIKE ?
          OR equipment_id LIKE ?
