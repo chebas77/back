@@ -1,13 +1,33 @@
 import { pool } from "../config/db.js";
 export async function createReport({
-  userId, method, title, description, equipmentId, dims, indicators, results, sag
+  userId,
+  method,
+  title,
+  description,
+  equipmentId,
+  dims,
+  indicators,
+  results,
+  sag,
+  projectId = null,
 }) {
+  const normalizedProjectId = Number.isInteger(projectId) ? projectId : null;
   const [r] = await pool.query(
     `INSERT INTO alignment_reports
-     (user_id, method, title, description, equipment_id, dims, indicators, results, sag)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [userId, method, title, description, equipmentId,
-     JSON.stringify(dims), JSON.stringify(indicators), JSON.stringify(results), sag]
+     (user_id, project_id, method, title, description, equipment_id, dims, indicators, results, sag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      normalizedProjectId,
+      method,
+      title,
+      description,
+      equipmentId,
+      JSON.stringify(dims),
+      JSON.stringify(indicators),
+      JSON.stringify(results),
+      sag,
+    ]
   );
   return r.insertId;
 }
@@ -30,7 +50,7 @@ export async function findReportById(id, userId) {
 
 export async function getReportsByUser(userId) {
   const [rows] = await pool.query(
-    `SELECT r.id, r.user_id, r.title, r.description, r.created_at, r.dims, r.indicators, r.results, r.sag,
+    `SELECT r.id, r.user_id, r.project_id, r.method, r.title, r.description, r.created_at, r.dims, r.indicators, r.results, r.sag,
             u.name AS user_name, u.email AS user_email
      FROM alignment_reports r
      LEFT JOIN users u ON r.user_id = u.id
@@ -58,7 +78,7 @@ export async function getReportsByUser(userId) {
 
 export async function listReportsByUser(userId, limit = 100) {
   const [rows] = await pool.query(
-    `SELECT id, title, equipment_id, created_at
+    `SELECT id, title, equipment_id, project_id, created_at
      FROM alignment_reports
      WHERE user_id=? ORDER BY created_at DESC LIMIT ?`,
     [userId, limit]
