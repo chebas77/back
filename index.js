@@ -11,6 +11,8 @@ import alignmentRoutes from "./src/routes/alignment.routes.js"; // <-- NUEVO
 import reportsRoutes from "./src/routes/report.routes.js";
 import path from "path";  
 import rootDashboardRoutes from "./src/routes/dashboard.routes.js";
+import projectRoutes from "./src/routes/project.routes.js";
+import reportSearchRoutes from "./src/routes/reportSearch.routes.js";
 const app = express();
 
 app.use(morgan("dev"));
@@ -28,7 +30,9 @@ app.use(cors({
 app.use(passport.initialize());
 
 // Rutas
-app.use("/", rootDashboardRoutes); // <-- ahora /stats y /projects/recent existen en raíz
+app.use("/", rootDashboardRoutes); // <-- ahora /stats existe en raíz
+app.use("/projects", projectRoutes);
+app.use("/reports", reportSearchRoutes);
 
 app.use("/auth", authRoutes);
 app.use("/api", userRoutes);
