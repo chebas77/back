@@ -17,8 +17,8 @@ export function handleAuthSuccess(req, res) {
     path: '/',
   });
 
-  // Redirigir al front (ej: dashboard)
-  const redirectTo = `${config.frontendUrl}/app`;
+  // Redirigir al front con el token en la URL (fallback para cuando la cookie no funciona)
+  const redirectTo = `${config.frontendUrl}/app?token=${encodeURIComponent(token)}`;
   return res.redirect(302, redirectTo);
 }
 
