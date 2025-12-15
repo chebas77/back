@@ -3,11 +3,18 @@ import { pool } from '../config/db.js';
 import { requireAuth } from '../middlewares/requireAuth.js';
 import {
   createProject,
+  listProjects,
   listRecentProjects,
   searchProjects,
   findProjectById,
+  getProjectCalculations,
+  updateProject,
+  deleteProject,
+  updateProjectMetrics,
+  updateProjectStatus,
 } from '../models/project.model.js';
 import { precisionPctContinuous, SELECT_RESULTS_FIELDS } from '../utils/precision.js';
+import { createNotification } from '../models/notification.model.js';
 
 const router = Router();
 
@@ -24,6 +31,17 @@ router.post('/', requireAuth, async (req, res) => {
     if (!project) {
       return res.status(500).json({ error: 'No se pudo crear el proyecto' });
     }
+
+    // Crear notificación
+    await createNotification({
+      userId: req.user.id,
+      type: 'success',
+      title: 'Proyecto creado',
+      message: `Proyecto "${name}" creado exitosamente`,
+      entityType: 'project',
+      entityId: project.id
+    });
+
     return res.status(201).json({ project });
   } catch (error) {
     console.error('POST /projects error:', error);
@@ -34,6 +52,23 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
     return res.status(500).json({ error: 'No se pudo crear el proyecto' });
+  }
+});
+router.get('/', requireAuth, async (req, res) => {
+  const pageParam = Number.parseInt(req.query.page, 10);
+  const sizeParam = Number.parseInt(req.query.pageSize, 10);
+  const page = Number.isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
+  const pageSize = Number.isNaN(sizeParam) ? 20 : Math.min(Math.max(sizeParam, 1), 100);
+
+  try {
+    const { items, total } = await listProjects({ page, pageSize });
+    return res.json({ items, page, pageSize, total });
+  } catch (error) {
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ items: [], page, pageSize, total: 0 });
+    }
+    console.error('GET /projects error:', error);
+    return res.status(500).json({ error: 'No se pudo obtener proyectos' });
   }
 });
 
@@ -74,7 +109,6 @@ router.get('/recent', async (req, res) => {
     }
     // Si la tabla no existe seguimos con el fallback usando alignment_reports
   }
-
   try {
     const [rows] = await pool.query(
       `SELECT
@@ -319,6 +353,119 @@ router.get('/:projectId/alignment-reports', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('GET /projects/:projectId/alignment-reports error:', error);
     return res.status(500).json({ error: 'No se pudo obtener los reportes del proyecto' });
+  }
+});
+
+// Actualizar un proyecto
+router.put('/:id', requireAuth, async (req, res) => {
+  const projectId = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'ID de proyecto inválido' });
+  }
+
+  const { name, description, status } = req.body;
+
+  try {
+    const project = await updateProject(projectId, { name, description, status });
+    if (!project) {
+      return res.status(404).json({ error: 'Proyecto no encontrado' });
+    }
+    return res.json({ project });
+  } catch (error) {
+    console.error('PUT /projects/:id error:', error);
+    return res.status(500).json({ error: 'No se pudo actualizar el proyecto' });
+  }
+});
+
+// Eliminar un proyecto
+router.delete('/:id', requireAuth, async (req, res) => {
+  const projectId = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'ID de proyecto inválido' });
+  }
+
+  try {
+    const deleted = await deleteProject(projectId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Proyecto no encontrado' });
+    }
+    return res.json({ ok: true, message: 'Proyecto eliminado exitosamente' });
+  } catch (error) {
+    console.error('DELETE /projects/:id error:', error);
+    return res.status(500).json({ error: 'No se pudo eliminar el proyecto' });
+  }
+});
+
+// Obtener cálculos de un proyecto
+router.get('/:id/calculations', requireAuth, async (req, res) => {
+  const projectId = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'ID de proyecto inválido' });
+  }
+
+  try {
+    const project = await findProjectById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Proyecto no encontrado' });
+    }
+
+    const calculations = await getProjectCalculations(projectId);
+    return res.json({ ok: true, project, calculations });
+  } catch (error) {
+    console.error('GET /projects/:id/calculations error:', error);
+    return res.status(500).json({ error: 'No se pudieron obtener los cálculos del proyecto' });
+  }
+});
+
+// Actualizar métricas de un proyecto
+router.post('/:id/update-metrics', requireAuth, async (req, res) => {
+  const projectId = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'ID de proyecto inválido' });
+  }
+
+  try {
+    const metrics = await updateProjectMetrics(projectId);
+    const project = await findProjectById(projectId);
+    return res.json({ ok: true, project, metrics });
+  } catch (error) {
+    console.error('POST /projects/:id/update-metrics error:', error);
+    return res.status(500).json({ error: 'No se pudieron actualizar las métricas del proyecto' });
+  }
+});
+
+// Actualizar solo el estado de un proyecto
+router.put('/:id/status', requireAuth, async (req, res) => {
+  const projectId = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'ID de proyecto inválido' });
+  }
+
+  const { status } = req.body;
+  if (!status || typeof status !== 'string') {
+    return res.status(400).json({ error: 'Estado requerido' });
+  }
+
+  try {
+    const project = await updateProjectStatus(projectId, status);
+    if (!project) {
+      return res.status(404).json({ error: 'Proyecto no encontrado' });
+    }
+
+    // Crear notificación
+    await createNotification({
+      userId: req.user.id,
+      type: 'info',
+      title: 'Estado actualizado',
+      message: `Proyecto "${project.name}" cambió a estado: ${status}`,
+      entityType: 'project',
+      entityId: projectId
+    });
+
+    return res.json({ ok: true, project });
+  } catch (error) {
+    console.error('PUT /projects/:id/status error:', error);
+    return res.status(400).json({ error: error.message || 'No se pudo actualizar el estado del proyecto' });
   }
 });
 

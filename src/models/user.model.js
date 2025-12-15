@@ -1,8 +1,8 @@
 import { pool } from '../config/db.js';
 import bcrypt from 'bcrypt';
 
-const DB = '`alignment manager`'; // usa backticks por el espacio
-const TABLE = `${DB}.users`;
+// Usar la tabla users directamente sin especificar DB
+const TABLE = 'users';
 
 // Utilidad: crea un hash dummy para cuentas OAuth (no se usará para login local)
 async function createDummyHash() {

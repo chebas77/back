@@ -68,7 +68,7 @@ export async function createProject({ name, description }) {
 
   const [result] = await pool.query(
     `INSERT INTO projects (name, description, status)
-     VALUES (?, ?, 'NEW')`,
+     VALUES (?, ?, 'PENDIENTE')`,
     [trimmedName, normalizedDescription]
   );
 
@@ -91,6 +91,26 @@ export async function listRecentProjects(limit = 5) {
   );
   return rows.map(mapProjectRow);
 }
+
+export async function listProjects({ page = 1, pageSize = 20 } = {}) {
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 20;
+  const offset = (safePage - 1) * safePageSize;
+
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM projects
+     ORDER BY COALESCE(updated_at, created_at) DESC
+     LIMIT ? OFFSET ?`,
+    [safePageSize, offset]
+  );
+
+  const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM projects`);
+  const total = countRows?.[0]?.total ?? 0;
+
+  return { items: rows.map(mapProjectRow), total };
+}
+
 
 export async function searchProjects(query, limit = 10) {
   const normalized = query.trim();
@@ -123,4 +143,140 @@ export async function searchProjects(query, limit = 10) {
 
   const [rows] = await pool.query(sql, params);
   return rows.map(mapProjectRow);
+}
+
+// ============== GESTIÓN DE CÁLCULOS EN PROYECTOS ==============
+
+export async function getProjectCalculations(projectId) {
+  const [rows] = await pool.query(
+    `SELECT id, title, equipment_id, method, created_at, updated_at
+     FROM alignment_reports
+     WHERE project_id = ?
+     ORDER BY created_at DESC`,
+    [projectId]
+  );
+  return rows;
+}
+
+export async function assignCalculationToProject(calculationId, projectId) {
+  await pool.query(
+    `UPDATE alignment_reports
+     SET project_id = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [projectId, calculationId]
+  );
+  await updateProjectMetrics(projectId);
+  return true;
+}
+
+export async function unassignCalculationFromProject(calculationId) {
+  const [rows] = await pool.query(
+    `SELECT project_id FROM alignment_reports WHERE id = ?`,
+    [calculationId]
+  );
+  const oldProjectId = rows[0]?.project_id;
+
+  await pool.query(
+    `UPDATE alignment_reports
+     SET project_id = NULL, updated_at = NOW()
+     WHERE id = ?`,
+    [calculationId]
+  );
+
+  if (oldProjectId) {
+    await updateProjectMetrics(oldProjectId);
+  }
+  return true;
+}
+
+export async function updateProjectMetrics(projectId) {
+  const [stats] = await pool.query(
+    `SELECT
+       COUNT(*) AS total_calculations,
+       MAX(created_at) AS last_calculation_at
+     FROM alignment_reports
+     WHERE project_id = ?`,
+    [projectId]
+  );
+
+  const totalCalculations = stats[0]?.total_calculations || 0;
+  const lastCalculation = stats[0]?.last_calculation_at;
+
+  await pool.query(
+    `UPDATE projects
+     SET last_calculation_at = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [lastCalculation, projectId]
+  );
+
+  return { totalCalculations, lastCalculation };
+}
+
+export async function deleteProject(projectId) {
+  // Desasignar todos los cálculos antes de eliminar
+  await pool.query(
+    `UPDATE alignment_reports
+     SET project_id = NULL
+     WHERE project_id = ?`,
+    [projectId]
+  );
+
+  const [result] = await pool.query(
+    `DELETE FROM projects WHERE id = ?`,
+    [projectId]
+  );
+  return result.affectedRows > 0;
+}
+
+export async function updateProject(projectId, { name, description, status }) {
+  const updates = [];
+  const params = [];
+
+  if (name !== undefined) {
+    updates.push('name = ?');
+    params.push(name.trim());
+  }
+  if (description !== undefined) {
+    updates.push('description = ?');
+    params.push(description ? description.trim() : null);
+  }
+  if (status !== undefined) {
+    // Validar estado
+    const validStatuses = ['PENDIENTE', 'EN_PROGRESO', 'COMPLETADO'];
+    const normalizedStatus = status.toUpperCase();
+    if (validStatuses.includes(normalizedStatus)) {
+      updates.push('status = ?');
+      params.push(normalizedStatus);
+    }
+  }
+
+  if (updates.length === 0) {
+    return findProjectById(projectId);
+  }
+
+  updates.push('updated_at = NOW()');
+  params.push(projectId);
+
+  await pool.query(
+    `UPDATE projects SET ${updates.join(', ')} WHERE id = ?`,
+    params
+  );
+
+  return findProjectById(projectId);
+}
+
+export async function updateProjectStatus(projectId, status) {
+  const validStatuses = ['PENDIENTE', 'EN_PROGRESO', 'COMPLETADO'];
+  const normalizedStatus = status.toUpperCase();
+  
+  if (!validStatuses.includes(normalizedStatus)) {
+    throw new Error(`Estado no válido. Usa: ${validStatuses.join(', ')}`);
+  }
+
+  await pool.query(
+    `UPDATE projects SET status = ?, updated_at = NOW() WHERE id = ?`,
+    [normalizedStatus, projectId]
+  );
+
+  return findProjectById(projectId);
 }

@@ -3,18 +3,18 @@ import 'dotenv/config';
 export const config = {
   port: process.env.PORT || 4000,
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
-  // ⚠️ en dev puedes poner un fallback, en prod NO
   jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
-  port: process.env.PORT || 4000,
   env: process.env.NODE_ENV || 'development',
-  frontendUrl: process.env.FRONTEND_URL,
- db: {
+  
+  db: {
+    url: process.env.DATABASE_URL,
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    name: process.env.DB_NAME, // "alignment manager"
+    name: process.env.DB_NAME,
   },
+  
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES || '7d',

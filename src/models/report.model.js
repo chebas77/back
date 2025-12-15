@@ -39,11 +39,13 @@ export async function findReportById(id, userId) {
 
   if (rows.length === 0) return null;
 
-  // Deserializar los campos JSON
+  // MySQL devuelve JSON como objetos, no necesita parse
   const report = rows[0];
-  report.dims = JSON.parse(report.dims || "{}");
-  report.indicators = JSON.parse(report.indicators || "{}");
-  report.results = JSON.parse(report.results || "{}");
+  
+  // Solo parsear si son strings (por compatibilidad)
+  if (typeof report.dims === 'string') report.dims = JSON.parse(report.dims || "{}");
+  if (typeof report.indicators === 'string') report.indicators = JSON.parse(report.indicators || "{}");
+  if (typeof report.results === 'string') report.results = JSON.parse(report.results || "{}");
 
   return report;
 }
@@ -59,17 +61,11 @@ export async function getReportsByUser(userId) {
     [userId]
   );
 
-  // Log para verificar los datos recuperados
-  console.log("[BACKEND] Report Data with User Info:", rows);
-
-  return rows;
-
-
-  // Deserializar los campos JSON para cada reporte
+  // Parsear solo si son strings (compatibilidad)
   const reports = rows.map((report) => {
-    report.dims = JSON.parse(report.dims || "{}");
-    report.indicators = JSON.parse(report.indicators || "{}");
-    report.results = JSON.parse(report.results || "{}");
+    if (typeof report.dims === 'string') report.dims = JSON.parse(report.dims || "{}");
+    if (typeof report.indicators === 'string') report.indicators = JSON.parse(report.indicators || "{}");
+    if (typeof report.results === 'string') report.results = JSON.parse(report.results || "{}");
     return report;
   });
 
@@ -84,4 +80,48 @@ export async function listReportsByUser(userId, limit = 100) {
     [userId, limit]
   );
   return rows;
+}
+
+export async function updateReport({
+  reportId,
+  userId,
+  title,
+  description,
+  equipmentId,
+  dims,
+  indicators,
+  results,
+  sag,
+  projectId,
+}) {
+  const normalizedProjectId = Number.isInteger(projectId) ? projectId : null;
+  
+  await pool.query(
+    `UPDATE alignment_reports
+     SET title = ?, description = ?, equipment_id = ?, dims = ?, indicators = ?, results = ?, sag = ?, project_id = ?, updated_at = NOW()
+     WHERE id = ? AND user_id = ?`,
+    [
+      title,
+      description,
+      equipmentId,
+      JSON.stringify(dims),
+      JSON.stringify(indicators),
+      JSON.stringify(results),
+      sag,
+      normalizedProjectId,
+      reportId,
+      userId,
+    ]
+  );
+
+  return findReportById(reportId, userId);
+}
+
+export async function deleteReport(reportId, userId) {
+  const [result] = await pool.query(
+    `DELETE FROM alignment_reports WHERE id = ? AND user_id = ?`,
+    [reportId, userId]
+  );
+  
+  return result.affectedRows > 0;
 }
