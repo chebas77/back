@@ -7,7 +7,7 @@ passport.use(new GoogleStrategy(
   {
     clientID: config.google.clientID,
     clientSecret: config.google.clientSecret,
-    callbackURL: config.google.callbackURL,
+    callbackURL: "https://alineamientoback.onrender.com/auth/google/callback",
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
