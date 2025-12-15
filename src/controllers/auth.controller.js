@@ -8,12 +8,11 @@ export function handleAuthSuccess(req, res) {
   // Generar JWT
   const token = signUserJwt({ sub: id, name, email, avatar });
 
-  // Setear cookie httpOnly
+  // Setear cookie httpOnly (sin domain para que funcione cross-domain)
   res.cookie(config.cookie.name, token, {
     httpOnly: true,
     secure: config.cookie.secure,
     sameSite: config.cookie.sameSite,
-    domain: config.cookie.domain,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
     path: '/',
   });
@@ -25,7 +24,6 @@ export function handleAuthSuccess(req, res) {
 
 export function logout(req, res) {
   res.clearCookie(config.cookie.name, {
-    domain: config.cookie.domain,
     path: '/',
   });
   return res.status(200).json({ ok: true });
