@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { precisionPctContinuous, SELECT_RESULTS_FIELDS } from '../utils/precision.js';
+import { requireAuth } from '../middlewares/requireAuth.js';
 
 const router = Router();
+router.use(requireAuth);
 
 /**
  * GET /stats
@@ -14,33 +16,43 @@ const router = Router();
  */
 router.get('/stats', async (req, res) => {
   try {
-    // Totales globales
-    const [[tot]] = await pool.query(`SELECT COUNT(*) AS total FROM alignment_reports`);
+    const userId = req.user.id;
+    
+    // Totales del usuario
+    const [[tot]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM alignment_reports WHERE user_id = ?`,
+      [userId]
+    );
     const totalCalculations = Number(tot.total || 0);
     const generatedReports = totalCalculations;
 
-    // Precisión promedio global (continua)
-    const [allRows] = await pool.query(`
-      SELECT ${SELECT_RESULTS_FIELDS}
-      FROM alignment_reports
-    `);
+    // Precisión promedio del usuario (continua)
+    const [allRows] = await pool.query(
+      `SELECT ${SELECT_RESULTS_FIELDS}
+       FROM alignment_reports
+       WHERE user_id = ?`,
+      [userId]
+    );
     const allPcts = allRows.map(precisionPctContinuous);
     const avgAccuracy = allPcts.length
       ? +(allPcts.reduce((a, b) => a + b, 0) / allPcts.length).toFixed(1)
       : 0;
 
-    // ====== DELTAS semana actual vs semana previa ======
-    const [curRows] = await pool.query(`
-      SELECT created_at, equipment_id, ${SELECT_RESULTS_FIELDS}
-      FROM alignment_reports
-      WHERE created_at >= (NOW() - INTERVAL 7 DAY)
-    `);
-    const [prevRows] = await pool.query(`
-      SELECT created_at, equipment_id, ${SELECT_RESULTS_FIELDS}
-      FROM alignment_reports
-      WHERE created_at <  (NOW() - INTERVAL 7 DAY)
-        AND created_at >= (NOW() - INTERVAL 14 DAY)
-    `);
+    // ====== DELTAS semana actual vs semana previa (del usuario) ======
+    const [curRows] = await pool.query(
+      `SELECT created_at, equipment_id, ${SELECT_RESULTS_FIELDS}
+       FROM alignment_reports
+       WHERE user_id = ? AND created_at >= (NOW() - INTERVAL 7 DAY)`,
+      [userId]
+    );
+    const [prevRows] = await pool.query(
+      `SELECT created_at, equipment_id, ${SELECT_RESULTS_FIELDS}
+       FROM alignment_reports
+       WHERE user_id = ?
+         AND created_at <  (NOW() - INTERVAL 7 DAY)
+         AND created_at >= (NOW() - INTERVAL 14 DAY)`,
+      [userId]
+    );
 
     const curActive = new Set(
       curRows.filter((r) => (r.equipment_id || '').trim()).map((r) => r.equipment_id)
@@ -67,17 +79,20 @@ router.get('/stats', async (req, res) => {
     let projectDelta = curActive - prevActive;
 
     try {
-      const [[currentProjects]] = await pool.query(`
-        SELECT COUNT(*) AS total
-        FROM projects
-        WHERE updated_at >= (NOW() - INTERVAL 7 DAY)
-      `);
-      const [[previousProjects]] = await pool.query(`
-        SELECT COUNT(*) AS total
-        FROM projects
-        WHERE updated_at <  (NOW() - INTERVAL 7 DAY)
-          AND updated_at >= (NOW() - INTERVAL 14 DAY)
-      `);
+      const [[currentProjects]] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM projects
+         WHERE user_id = ? AND updated_at >= (NOW() - INTERVAL 7 DAY)`,
+        [userId]
+      );
+      const [[previousProjects]] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM projects
+         WHERE user_id = ?
+           AND updated_at <  (NOW() - INTERVAL 7 DAY)
+           AND updated_at >= (NOW() - INTERVAL 14 DAY)`,
+        [userId]
+      );
 
       activeProjects = Number(currentProjects.total || 0);
       projectDelta = activeProjects - Number(previousProjects.total || 0);

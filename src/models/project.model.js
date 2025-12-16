@@ -61,58 +61,70 @@ export function mapProjectRow(row) {
   return base;
 }
 
-export async function createProject({ name, description }) {
+export async function createProject({ name, description, userId }) {
   const trimmedName = name.trim();
   const trimmedDescription = description ? description.trim() : '';
   const normalizedDescription = trimmedDescription ? trimmedDescription : null;
 
   const [result] = await pool.query(
-    `INSERT INTO projects (name, description, status)
-     VALUES (?, ?, 'PENDIENTE')`,
-    [trimmedName, normalizedDescription]
+    `INSERT INTO projects (user_id, name, description, status)
+     VALUES (?, ?, ?, 'PENDIENTE')`,
+    [userId, trimmedName, normalizedDescription]
   );
 
-  return findProjectById(result.insertId);
+  return findProjectById(result.insertId, userId);
 }
 
-export async function findProjectById(id) {
-  const [rows] = await pool.query(`SELECT * FROM projects WHERE id = ?`, [id]);
+export async function findProjectById(id, userId = null) {
+  const sql = userId 
+    ? `SELECT * FROM projects WHERE id = ? AND user_id = ?`
+    : `SELECT * FROM projects WHERE id = ?`;
+  const params = userId ? [id, userId] : [id];
+  
+  const [rows] = await pool.query(sql, params);
   if (!rows.length) return null;
   return mapProjectRow(rows[0]);
 }
 
-export async function listRecentProjects(limit = 5) {
-  const [rows] = await pool.query(
-    `SELECT *
-     FROM projects
-     ORDER BY COALESCE(updated_at, created_at) DESC
-     LIMIT ?`,
-    [limit]
-  );
+export async function listRecentProjects(limit = 5, userId = null) {
+  const sql = userId
+    ? `SELECT * FROM projects WHERE user_id = ? ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?`
+    : `SELECT * FROM projects ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?`;
+  const params = userId ? [userId, limit] : [limit];
+  
+  const [rows] = await pool.query(sql, params);
   return rows.map(mapProjectRow);
 }
 
-export async function listProjects({ page = 1, pageSize = 20 } = {}) {
+export async function listProjects({ page = 1, pageSize = 20, userId = null } = {}) {
   const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
   const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 20;
   const offset = (safePage - 1) * safePageSize;
 
+  const whereClause = userId ? 'WHERE user_id = ?' : '';
+  const params = userId ? [userId, safePageSize, offset] : [safePageSize, offset];
+
   const [rows] = await pool.query(
     `SELECT *
      FROM projects
+     ${whereClause}
      ORDER BY COALESCE(updated_at, created_at) DESC
      LIMIT ? OFFSET ?`,
-    [safePageSize, offset]
+    params
   );
 
-  const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM projects`);
+  const countParams = userId ? [userId] : [];
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM projects ${whereClause}`,
+    countParams
+  );
   const total = countRows?.[0]?.total ?? 0;
 
   return { items: rows.map(mapProjectRow), total };
 }
 
 
-export async function searchProjects(query, limit = 10) {
+export async function searchProjects(query, limit = 10, userId = null) {
   const normalized = query.trim();
   if (!normalized) return [];
 
@@ -132,10 +144,16 @@ export async function searchProjects(query, limit = 10) {
   conditions.push('description LIKE ?');
   params.push(like);
 
+  const whereClause = userId 
+    ? `(${conditions.join(' OR ')}) AND user_id = ?`
+    : conditions.join(' OR ');
+  
+  if (userId) params.push(userId);
+
   const sql = `
     SELECT *
     FROM projects
-    WHERE ${conditions.join(' OR ')}
+    WHERE ${whereClause}
     ORDER BY COALESCE(updated_at, created_at) DESC
     LIMIT ?
   `;
@@ -212,7 +230,7 @@ export async function updateProjectMetrics(projectId) {
   return { totalCalculations, lastCalculation };
 }
 
-export async function deleteProject(projectId) {
+export async function deleteProject(projectId, userId = null) {
   // Desasignar todos los cálculos antes de eliminar
   await pool.query(
     `UPDATE alignment_reports
@@ -221,14 +239,17 @@ export async function deleteProject(projectId) {
     [projectId]
   );
 
+  const whereClause = userId ? 'WHERE id = ? AND user_id = ?' : 'WHERE id = ?';
+  const params = userId ? [projectId, userId] : [projectId];
+  
   const [result] = await pool.query(
-    `DELETE FROM projects WHERE id = ?`,
-    [projectId]
+    `DELETE FROM projects ${whereClause}`,
+    params
   );
   return result.affectedRows > 0;
 }
 
-export async function updateProject(projectId, { name, description, status }) {
+export async function updateProject(projectId, { name, description, status, userId = null }) {
   const updates = [];
   const params = [];
 
@@ -251,21 +272,24 @@ export async function updateProject(projectId, { name, description, status }) {
   }
 
   if (updates.length === 0) {
-    return findProjectById(projectId);
+    return findProjectById(projectId, userId);
   }
 
   updates.push('updated_at = NOW()');
   params.push(projectId);
+  
+  const whereClause = userId ? 'WHERE id = ? AND user_id = ?' : 'WHERE id = ?';
+  if (userId) params.push(userId);
 
   await pool.query(
-    `UPDATE projects SET ${updates.join(', ')} WHERE id = ?`,
+    `UPDATE projects SET ${updates.join(', ')} ${whereClause}`,
     params
   );
 
-  return findProjectById(projectId);
+  return findProjectById(projectId, userId);
 }
 
-export async function updateProjectStatus(projectId, status) {
+export async function updateProjectStatus(projectId, status, userId = null) {
   const validStatuses = ['PENDIENTE', 'EN_PROGRESO', 'COMPLETADO'];
   const normalizedStatus = status.toUpperCase();
   
@@ -273,10 +297,13 @@ export async function updateProjectStatus(projectId, status) {
     throw new Error(`Estado no válido. Usa: ${validStatuses.join(', ')}`);
   }
 
+  const whereClause = userId ? 'WHERE id = ? AND user_id = ?' : 'WHERE id = ?';
+  const params = userId ? [normalizedStatus, projectId, userId] : [normalizedStatus, projectId];
+
   await pool.query(
-    `UPDATE projects SET status = ?, updated_at = NOW() WHERE id = ?`,
-    [normalizedStatus, projectId]
+    `UPDATE projects SET status = ?, updated_at = NOW() ${whereClause}`,
+    params
   );
 
-  return findProjectById(projectId);
+  return findProjectById(projectId, userId);
 }

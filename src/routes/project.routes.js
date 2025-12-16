@@ -27,7 +27,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
 
   try {
-    const project = await createProject({ name, description });
+    const project = await createProject({ name, description, userId: req.user.id });
     if (!project) {
       return res.status(500).json({ error: 'No se pudo crear el proyecto' });
     }
@@ -61,7 +61,7 @@ router.get('/', requireAuth, async (req, res) => {
   const pageSize = Number.isNaN(sizeParam) ? 20 : Math.min(Math.max(sizeParam, 1), 100);
 
   try {
-    const { items, total } = await listProjects({ page, pageSize });
+    const { items, total } = await listProjects({ page, pageSize, userId: req.user.id });
     return res.json({ items, page, pageSize, total });
   } catch (error) {
     if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -72,7 +72,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/search', async (req, res) => {
+router.get('/search', requireAuth, async (req, res) => {
   const query = typeof req.query.q === 'string' ? req.query.q : '';
   const limitParam = Number.parseInt(req.query.limit, 10);
   const limit = Number.isNaN(limitParam) ? 10 : Math.min(Math.max(limitParam, 1), 50);
@@ -82,7 +82,7 @@ router.get('/search', async (req, res) => {
   }
 
   try {
-    const items = await searchProjects(query, limit);
+    const items = await searchProjects(query, limit, req.user.id);
     return res.json({ items });
   } catch (error) {
     if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -93,12 +93,12 @@ router.get('/search', async (req, res) => {
   }
 });
 
-router.get('/recent', async (req, res) => {
+router.get('/recent', requireAuth, async (req, res) => {
   const limitParam = Number.parseInt(req.query.limit, 10);
   const limit = Number.isNaN(limitParam) ? 5 : Math.min(Math.max(limitParam, 1), 50);
 
   try {
-    const recent = await listRecentProjects(limit);
+    const recent = await listRecentProjects(limit, req.user.id);
     if (recent.length) {
       return res.json(recent);
     }
@@ -206,7 +206,7 @@ router.get('/:projectId/alignment-reports', requireAuth, async (req, res) => {
 
   let project = null;
   if (filter.projectId) {
-    project = await findProjectById(filter.projectId);
+    project = await findProjectById(filter.projectId, req.user.id);
     if (!project) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }
@@ -366,7 +366,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   const { name, description, status } = req.body;
 
   try {
-    const project = await updateProject(projectId, { name, description, status });
+    const project = await updateProject(projectId, { name, description, status, userId: req.user.id });
     if (!project) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }
@@ -385,7 +385,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 
   try {
-    const deleted = await deleteProject(projectId);
+    const deleted = await deleteProject(projectId, req.user.id);
     if (!deleted) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }
@@ -404,7 +404,7 @@ router.get('/:id/calculations', requireAuth, async (req, res) => {
   }
 
   try {
-    const project = await findProjectById(projectId);
+    const project = await findProjectById(projectId, req.user.id);
     if (!project) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }
@@ -426,7 +426,7 @@ router.post('/:id/update-metrics', requireAuth, async (req, res) => {
 
   try {
     const metrics = await updateProjectMetrics(projectId);
-    const project = await findProjectById(projectId);
+    const project = await findProjectById(projectId, req.user.id);
     return res.json({ ok: true, project, metrics });
   } catch (error) {
     console.error('POST /projects/:id/update-metrics error:', error);
@@ -447,7 +447,7 @@ router.put('/:id/status', requireAuth, async (req, res) => {
   }
 
   try {
-    const project = await updateProjectStatus(projectId, status);
+    const project = await updateProjectStatus(projectId, status, req.user.id);
     if (!project) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }

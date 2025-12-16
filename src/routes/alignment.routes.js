@@ -1,8 +1,10 @@
 // src/routes/alignment.routes.js
 import { Router } from "express";
 import { computeAlignment } from "../services/alignment.service.js";
+import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
+router.use(requireAuth);
 
 router.post("/compute", (req, res) => {
   try {

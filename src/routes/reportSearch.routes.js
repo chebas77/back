@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
+import { requireAuth } from '../middlewares/requireAuth.js';
 
 const router = Router();
+router.use(requireAuth);
 
 function buildLike(query) {
   return `%${query.replace(/[%_]/g, (char) => `\\${char}`)}%`;
 }
 
 router.get('/search', async (req, res) => {
+  const userId = req.user.id;
   const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const limitParam = Number.parseInt(req.query.limit, 10);
   const limit = Number.isNaN(limitParam) ? 10 : Math.min(Math.max(limitParam, 1), 50);
@@ -20,18 +23,19 @@ router.get('/search', async (req, res) => {
   const maybeId = Number.parseInt(query, 10);
 
   try {
-    const params = [like, like, like, like, limit];
+    const params = [userId, like, like, like, like, limit];
     let sql = `
       SELECT id, title, method, method AS type, description, equipment_id, created_at
       FROM alignment_reports
-      WHERE title LIKE ?
+      WHERE user_id = ?
+        AND (title LIKE ?
          OR equipment_id LIKE ?
          OR method LIKE ?
-         OR description LIKE ?
+         OR description LIKE ?)
     `;
 
     if (!Number.isNaN(maybeId)) {
-      sql += ' OR id = ?';
+      sql += ' AND id = ?';
       params.splice(params.length - 1, 0, maybeId);
     }
 

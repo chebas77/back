@@ -2,8 +2,10 @@
 import { Router } from "express";
 import { pool } from "../config/db.js";
 import { computeAlignment } from "../services/alignment.service.js"; // VN,VF,HN,HF
+import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
+router.use(requireAuth);
 const DB = "alignment_manager";
 
 // 1) New session

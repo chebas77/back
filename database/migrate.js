@@ -51,7 +51,13 @@ async function runMigration() {
       ? fs.readFileSync(notifSqlPath, 'utf8')
       : '';
     
-    const combinedSql = sql + '\n\n' + notifSql;
+    // Leer archivo de user_id en projects
+    const userProjectSqlPath = path.join(__dirname, 'add-user-to-projects.sql');
+    const userProjectSql = fs.existsSync(userProjectSqlPath) 
+      ? fs.readFileSync(userProjectSqlPath, 'utf8')
+      : '';
+    
+    const combinedSql = sql + '\n\n' + notifSql + '\n\n' + userProjectSql;
     
     // Remover comentarios de línea y ejecutar cada statement
     const cleanedSql = combinedSql
@@ -72,10 +78,23 @@ async function runMigration() {
         console.log(`   📋 Creando tabla: ${tableName}`);
       }
       try {
-        await connection.execute(statement);
+        await connection.query(statement);
       } catch (err) {
-        console.error(`   ❌ Error en statement: ${err.message}`);
-        console.error(`   Statement: ${statement.substring(0, 100)}...`);
+        // Ignorar errores de duplicados (tabla/columna/índice ya existe)
+        if (err.code === 'ER_TABLE_EXISTS_ERROR' || 
+            err.code === 'ER_DUP_FIELDNAME' || 
+            err.code === 'ER_DUP_KEYNAME' ||
+            err.code === 'ER_DUP_INDEX' ||
+            err.errno === 1060 || // Duplicate column name
+            err.errno === 1061 || // Duplicate key name
+            err.errno === 1826 || // Duplicate foreign key constraint
+            err.message.includes('Duplicate') ||
+            err.message.includes('already exists')) {
+          console.log(`   ℹ️  Ya existe (ignorado)`);
+        } else {
+          console.error(`   ❌ Error en statement: ${err.message}`);
+          console.error(`   Statement: ${statement.substring(0, 100)}...`);
+        }
       }
     }
     
